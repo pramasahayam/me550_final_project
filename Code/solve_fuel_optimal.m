@@ -9,7 +9,7 @@ function [status, optval, state_history, thrust_history] = solve_fuel_optimal(r0
     n_thrusters = 6;
     T1 = 0.3*3100; % [kN]
     T2 = 0.8*3100; % [kN]
-    thrust_angle = deg2rad(4);
+    thrust_angle = deg2rad(27); % [rad]
     rho1 = n_thrusters * T1 * cos(thrust_angle);
     rho2 = n_thrusters * T2 * cos(thrust_angle);
 
@@ -40,8 +40,7 @@ function [status, optval, state_history, thrust_history] = solve_fuel_optimal(r0
     for M = 4:4:4*N
         omega(1, M) = delta_t;
     end
-
-    cvx_solver sdpt3
+    
     cvx_begin quiet
         variable eta(4*(N+1), 1)
         minimize omega*eta(1:4*N, 1)
