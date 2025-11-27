@@ -4,5 +4,8 @@
 /Code/misc/
 
 *.DS_Store
-
-/Code/idkbruh.mlx
+report/report.synctex.gz
+report/report-blx.bib
+report/report.bbl
+report/report.tex
+.vscode/ltex.hiddenFalsePositives.en-US.txt

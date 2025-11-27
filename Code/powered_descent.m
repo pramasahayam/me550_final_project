@@ -1,4 +1,5 @@
-function [status, optval, state_history, control_history] = powered_descent(r0, rdot0, rf, t_f, flag)
+%[text] This function implements the optimal control problem formulated in the two papers. Inputs are initial conditions, final position and time, and the solver flag. Basic problem parameters are initialized, then the discrete $\\mathrm{A}${"editStyle":"visual"} and $\\mathrm{B}${"editStyle":"visual"} matrices are found. The $\\xi${"editStyle":"visual"} and $\\Psi${"editStyle":"visual"} matrices are created in a batched form, as required by CVX, along with the $S${"editStyle":"visual"} and $c${"editStyle":"visual"} matrices. Instead of the matrices used for indexing in the original problem formulation, simple MATLAB array indexing is used.
+function [status, optval, states, thrusts] = powered_descent(r0, rdot0, rf, t_f, flag)
     g = [-3.7114 0 0]'; % [m/s^]
     
     m_wet = 1905; % [kg]
@@ -32,15 +33,16 @@ function [status, optval, state_history, control_history] = powered_descent(r0, 
         omega(1, M) = delta_t;
     end
     
-    cvx_precision best
+    k = (0:N)';
+
+    %z0, mu_1, and mu_2 are found ahead of time
+    z0 = log(m_wet - rho2 * burn_rate * delta_t * k);
+    mu_1 = rho1 * exp(-z0);
+    mu_2 = rho2 * exp(-z0);
+    
+    cvx_precision best % ill-conditioned otherwise
     cvx_begin quiet
         variable eta(4*(N+1), 1)
-
-        k = (0:N)';
-
-        z0 = log(m_wet - rho2 * burn_rate * delta_t * k);
-        mu_1 = rho1 * exp(-z0);
-        mu_2 = rho2 * exp(-z0);
 
         u_matrix = reshape(eta, 4, N+1);
         u_k = u_matrix(1:3, :);
@@ -51,7 +53,8 @@ function [status, optval, state_history, control_history] = powered_descent(r0, 
         y_N = y_k(:, end);
 
         z_k = y_k(7, :)';
-
+        
+        % choice of objectives/final conditions
         if strcmp(flag, 'Fuel')
             minimize omega*eta(1:4*N, 1)
             subject to
@@ -67,25 +70,28 @@ function [status, optval, state_history, control_history] = powered_descent(r0, 
 
             pos_error = y_k(1:3, :) - repmat(y_N(1:3), 1, N+1);
         end
-            
+        
+        % constraints present in both problems
         subject to
             y_N(7) >= log(m_dry);
 
             norms(u_k, 2, 1)' <= sigma_k;
 
-            mu_1 .* (1 - (z_k - z0) + 0.5 * (z_k - z0).^2) <= sigma_k <= mu_2 .* (1 - (z_k - z0));
+            mu_1 .* (1 - (z_k - z0) + 0.5 * (z_k - z0).^2) ...
+                <= sigma_k <= mu_2 .* (1 - (z_k - z0));
 
-            log(m_wet - rho2 * burn_rate * delta_t * k) <= z_k <= log(m_wet - rho1 * burn_rate * delta_t * k);
+            log(m_wet - rho2 * burn_rate * delta_t * k) ...
+                <= z_k <= log(m_wet - rho1 * burn_rate * delta_t * k);
             
             norms(S * pos_error, 2, 1) + c' * pos_error <= 0;
     cvx_end
     
     status = cvx_status;
     optval = cvx_optval;
-    control_history = reshape(eta, 4, N+1);
-    state_history = [y0 reshape(xi_batched(:) + Psi_batched * eta, 7, N)];
+    thrusts = reshape(eta, 4, N+1);
+    states = [y0 reshape(xi_batched(:) + Psi_batched * eta, 7, N)];
 end
-%[text] 
+%[text] This function creates the batched $\\xi${"editStyle":"visual"} and $\\Psi${"editStyle":"visual"} matrices used to propagate the dynamics, their definition comes from the zero-order hold discretization the paper uses.
 function [xi_batched, Psi_batched] = build_batch_matrices(A, B, N, y0, g)
     xi_batched = zeros(7, N);
     Psi_batched = zeros(7*N, 4*(N+1));
@@ -98,7 +104,8 @@ function [xi_batched, Psi_batched] = build_batch_matrices(A, B, N, y0, g)
         if k < N
             current_Lambda = A * current_Lambda + B;
         end
-    
+        
+        % Psi is calculated recursively for efficiency
         if k == 1
             Psi_batched(1:7, 1:4) = B;
         else
